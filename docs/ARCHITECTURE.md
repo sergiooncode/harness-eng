@@ -7,7 +7,7 @@
 ## Directory Structure
 
 ```
-rauda-harness/
+harness-eng/
 ├── harness/                     # The framework — DO NOT modify per-client
 │   ├── schema.py                   # Typed contracts (ClientConfig, enums)
 │   ├── harness.py                  # The harness entry point (agent runs this)
@@ -18,8 +18,8 @@ rauda-harness/
 │   │   ├── schema_validator.py     # Config.yaml validation
 │   │   ├── structural_linter.py    # AST-based integration.py enforcement
 │   │   └── consistency_checker.py  # Cross-client drift detection
-│   └── eval/
-│       └── reply_eval.py           # Reply quality evaluation
+│   └── evals/
+│       └── spec_compliance.py      # Spec compliance eval (deterministic + optional LLM)
 ├── clients/                        # Per-client integrations — ONE directory each
 │   ├── acme_corp/
 │   │   ├── config.yaml             # Client configuration
@@ -58,7 +58,7 @@ Dependencies flow in ONE direction:
 - `schema.py` depends on nothing (only stdlib)
 - `integrations/base.py` depends on `schema.py`
 - `validators/` depend on `schema.py` (and `base.py` for structural checks)
-- `harness.py` depends on `validators/` and `eval/`
+- `harness.py` depends on `validators/` and `evals/`
 - `registry.py` depends on `schema.py` and `integrations/base.py`
 - Client `integration.py` files depend on `schema.py` and `integrations/base.py` ONLY
 
@@ -81,8 +81,9 @@ python -m harness.harness check clients/<client_slug>/
 # Check all clients + cross-client consistency
 python -m harness.harness check-all clients/
 
-# Evaluate a generated reply
-python -m harness.harness eval --reply "..." --subject "..." --description "..."
+# Evaluate implementation against challenge spec
+# Deterministic checks always run; LLM layer activates if ANTHROPIC_API_KEY is set
+python -m harness.harness eval --spec spec.md --target clients/<client_slug>/
 ```
 
 Output is ALWAYS structured JSON. Exit code 0 = passed, 1 = failed.

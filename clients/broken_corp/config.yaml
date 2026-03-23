@@ -1,0 +1,23 @@
+# Deliberately broken config for harness testing
+client_name: "Broken Corp"
+client_slug: "BROKEN_CORP"  # ERROR: must be lowercase
+platform: "salesforce"       # ERROR: invalid platform
+
+webhook:
+  subscribed_events:
+    - ticket_created
+    - order_placed           # ERROR: invalid event type
+  auth_method: "oauth"       # ERROR: invalid auth method
+  # Missing auth_secret_env_var
+
+field_mapping:
+  ticket_id: "id"
+  custom_fields: "not_a_dict"  # ERROR: must be a mapping
+
+actions:
+  - name: "Do Thing"
+    action_type: "send_email"  # ERROR: invalid action type
+    description: "Does a thing"
+
+eval:
+  quality_threshold: 2.5       # ERROR: must be 0.0-1.0

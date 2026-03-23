@@ -14,7 +14,7 @@ I have a working engineering harness at `harness/` built for Zendesk client inte
 3. **validators/schema_validator.py** — validates config.yaml against the schema. Every error includes the field path and an actionable fix hint.
 4. **validators/structural_linter.py** — AST-based checks on integration code (required methods implemented, forbidden patterns caught, architectural rules enforced)
 5. **validators/consistency_checker.py** — cross-integration drift detection (finds inconsistencies across multiple client implementations)
-6. **eval/reply_eval.py** — deterministic quality checks on AI-generated outputs
+6. **eval/spec_compliance.py** — LLM-based check that verifies the AI agent's implementation actually satisfies the challenge specification. Uses Anthropic API via stdlib urllib.
 7. **harness.py** — single CLI entry point (`python -m harness.harness check <dir>`) that runs all validators and returns structured JSON with `passed`, `checks`, `next_steps` (with fix hints). Exit code 0 = pass, 1 = fail.
 8. **docs/ARCHITECTURE.md** — codebase map for the AI agent
 9. **docs/INTEGRATION_GUIDE.md** — step-by-step instructions for creating a new integration
@@ -25,7 +25,7 @@ The harness output is designed to be read by an AI agent to self-correct. Every 
 Here is the actual challenge I need to solve:
 
 ```
-Wire up the LLM eval stubs
+[PASTE THE CHALLENGE DESCRIPTION HERE]
 ```
 
 **Your task:**
@@ -37,7 +37,7 @@ Wire up the LLM eval stubs
    - Replace enums, dataclasses in schema.py with the challenge's domain vocabulary
    - Replace the abstract methods in base.py with what the challenge's pipeline requires
    - Update validators to check the challenge's specific rules
-   - Update eval checks for the challenge's output type
+   - Update eval/spec_compliance.py prompt if the challenge domain changes significantly
    - Update harness.py check methods accordingly
    - Update ARCHITECTURE.md and INTEGRATION_GUIDE.md
    - Create 2 example client implementations that pass the harness
@@ -48,5 +48,5 @@ Wire up the LLM eval stubs
 - Zero external dependencies (stdlib + pyyaml only)
 - All harness output must be structured JSON parseable by an AI agent
 - Every error must include a fix_hint telling the agent exactly what to change
-- The harness must be invocable as `python -m harness.harness check <path>`
+- The harness must be invocable as `python -m harness.harness check <path>` and `python -m harness.harness eval --spec <spec> --target <code>`
 - Do NOT ask me questions. Make reasonable decisions and proceed.

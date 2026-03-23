@@ -8,7 +8,7 @@ JSON output, and uses it to self-correct.
 Usage by an AI agent:
     python -m harness.harness check clients/new_client/
     python -m harness.harness check-all clients/
-    python -m harness.harness eval --reply "Hello, ..." --subject "Order issue"
+    python -m harness.harness eval --spec spec.md --target clients/new_client/
 
 The output is ALWAYS structured JSON so the agent can parse it programmatically.
 The error messages are ACTIONABLE — they tell the agent exactly what to fix.
@@ -22,7 +22,7 @@ from typing import Any
 from harness.validators.schema_validator import ConfigValidator
 from harness.validators.structural_linter import StructuralLinter
 from harness.validators.consistency_checker import ConsistencyChecker
-from harness.eval.reply_eval import ReplyEvaluator
+from harness.evals.spec_compliance import SpecComplianceEvaluator
 
 
 class Harness:
@@ -32,7 +32,7 @@ class Harness:
         self.config_validator = ConfigValidator()
         self.structural_linter = StructuralLinter()
         self.consistency_checker = ConsistencyChecker()
-        self.reply_evaluator = ReplyEvaluator()
+        self.spec_evaluator = SpecComplianceEvaluator()
 
     def check_client(self, client_dir: Path) -> dict[str, Any]:
         """Run all harness checks on a single client integration.
@@ -172,26 +172,9 @@ class Harness:
 
         return result
 
-    def eval_reply(self, reply_text: str, subject: str = "", description: str = "",
-                   quality_threshold: float = 0.7) -> dict[str, Any]:
-        """Evaluate an AI-generated reply. Agent calls this to check its own output."""
-        evaluator = ReplyEvaluator(quality_threshold=quality_threshold)
-        eval_result = evaluator.evaluate(reply_text, subject, description)
-
-        return {
-            "passed": eval_result.passed,
-            "overall_score": round(eval_result.overall_score, 3),
-            "quality_threshold": quality_threshold,
-            "checks": {
-                name: {
-                    "passed": check.passed,
-                    "score": round(check.score, 3),
-                    "message": check.message,
-                }
-                for name, check in eval_result.checks.items()
-            },
-            "failed_checks": eval_result.failed_checks,
-        }
+    def eval_spec(self, spec_path: str, target_path: str) -> dict[str, Any]:
+        """Verify implementation against challenge spec. Agent calls this to check its own work."""
+        return self.spec_evaluator.evaluate_from_paths(Path(spec_path), Path(target_path))
 
     # ------------------------------------------------------------------
     # Helpers — actionable hints for the AI agent
@@ -297,7 +280,7 @@ def main():
             "usage": {
                 "check <client_dir>": "Run all harness checks on a single client",
                 "check-all <clients_dir>": "Run harness on all clients + consistency checks",
-                "eval --reply <text> [--subject <text>] [--description <text>]": "Evaluate an AI reply",
+                "eval --spec <spec_file> --target <code_dir>": "Verify implementation against challenge spec",
             },
         }
         print(json.dumps(usage, indent=2))
@@ -316,20 +299,20 @@ def main():
         sys.exit(0 if result["passed"] else 1)
 
     elif command == "eval":
-        # Parse --reply, --subject, --description from args
         args = sys.argv[2:]
-        reply = subject = description = ""
+        spec_path = target_path = ""
         i = 0
         while i < len(args):
-            if args[i] == "--reply" and i + 1 < len(args):
-                reply = args[i + 1]; i += 2
-            elif args[i] == "--subject" and i + 1 < len(args):
-                subject = args[i + 1]; i += 2
-            elif args[i] == "--description" and i + 1 < len(args):
-                description = args[i + 1]; i += 2
+            if args[i] == "--spec" and i + 1 < len(args):
+                spec_path = args[i + 1]; i += 2
+            elif args[i] == "--target" and i + 1 < len(args):
+                target_path = args[i + 1]; i += 2
             else:
                 i += 1
-        result = harness.eval_reply(reply, subject, description)
+        if not spec_path or not target_path:
+            print(json.dumps({"error": "eval requires --spec and --target"}))
+            sys.exit(1)
+        result = harness.eval_spec(spec_path, target_path)
         print(json.dumps(result, indent=2))
         sys.exit(0 if result["passed"] else 1)
 
