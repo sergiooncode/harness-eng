@@ -1,0 +1,64 @@
+client_name: "Acme Corp"
+client_slug: "acme_corp"
+platform: "zendesk"
+
+webhook:
+  subscribed_events:
+    - ticket_created
+    - ticket_updated
+    - ticket_comment_added
+  auth_method: "hmac_signature"
+  auth_secret_env_var: "ACME_ZENDESK_WEBHOOK_SECRET"
+
+field_mapping:
+  ticket_id: "id"
+  subject: "subject"
+  description: "description"
+  requester_email: "requester.email"
+  requester_name: "requester.name"
+  status: "status"
+  priority: "priority"
+  tags: "tags"
+  custom_fields:
+    order_id: "custom_fields.order_number"
+    subscription_tier: "custom_fields.plan_type"
+
+info_repositories:
+  - name: "Order History API"
+    type: "api"
+    description: "Fetches customer order history by email address"
+    base_url: "https://api.acme.com/v1/orders"
+    auth_env_var: "ACME_API_KEY"
+
+  - name: "Product Knowledge Base"
+    type: "knowledge_base"
+    description: "Acme product documentation and FAQs"
+    base_url: "https://kb.acme.com/api/search"
+
+actions:
+  - name: "Reply to Ticket"
+    action_type: "reply_to_ticket"
+    description: "Send an AI-generated reply to the customer via Zendesk"
+    endpoint: "https://acme.zendesk.com/api/v2/tickets/{ticket_id}/comments"
+
+  - name: "Update Status"
+    action_type: "update_ticket_status"
+    description: "Update the ticket status in Zendesk"
+    endpoint: "https://acme.zendesk.com/api/v2/tickets/{ticket_id}"
+
+  - name: "Escalate"
+    action_type: "escalate_to_human"
+    description: "Escalate to a human agent when confidence is low"
+    requires_confirmation: false
+
+  - name: "Process Refund"
+    action_type: "call_client_api"
+    description: "Trigger a refund through Acme's order system"
+    endpoint: "https://api.acme.com/v1/orders/{order_id}/refund"
+    requires_confirmation: true
+
+eval:
+  airtable_base_id: "appABCD1234"
+  airtable_table_name: "Acme Reply Evaluations"
+  auto_eval_enabled: true
+  quality_threshold: 0.75

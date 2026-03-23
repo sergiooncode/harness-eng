@@ -1,0 +1,47 @@
+client_name: "Globex Corporation"
+client_slug: "globex"
+platform: "zendesk"
+
+webhook:
+  subscribed_events:
+    - ticket_created
+    - ticket_updated
+  auth_method: "bearer_token"
+  auth_secret_env_var: "GLOBEX_ZENDESK_TOKEN"
+
+field_mapping:
+  ticket_id: "id"
+  subject: "subject"
+  description: "comment.body"
+  requester_email: "requester.email"
+  requester_name: "requester.name"
+  status: "status"
+  priority: "priority"
+  tags: "tags"
+  custom_fields:
+    account_id: "custom_fields.account_number"
+    region: "custom_fields.region"
+
+info_repositories:
+  - name: "Account API"
+    type: "api"
+    description: "Fetches customer account details by account ID"
+    base_url: "https://api.globex.com/v2/accounts"
+    auth_env_var: "GLOBEX_API_KEY"
+
+actions:
+  - name: "Reply to Ticket"
+    action_type: "reply_to_ticket"
+    description: "Send an AI-generated reply via Zendesk"
+    endpoint: "https://globex.zendesk.com/api/v2/tickets/{ticket_id}/comments"
+
+  - name: "Escalate"
+    action_type: "escalate_to_human"
+    description: "Route to human agent queue"
+    requires_confirmation: false
+
+eval:
+  airtable_base_id: "appXYZ5678"
+  airtable_table_name: "Globex Reply Evaluations"
+  auto_eval_enabled: false
+  quality_threshold: 0.7
