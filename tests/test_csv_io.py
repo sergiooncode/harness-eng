@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from evaluator.schemas import Evaluation
+from rauda_core.schemas import Evaluation
 from evaluator.csv_io import read_tickets, write_results
 
 

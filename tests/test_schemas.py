@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from evaluator.schemas import Evaluation
+from rauda_core.schemas import Evaluation
 
 
 class TestEvaluationModel:

@@ -5,7 +5,7 @@ import logging
 
 from openai import AsyncOpenAI, APIStatusError, APITimeoutError, RateLimitError
 
-from evaluator.schemas import Evaluation, SYSTEM_PROMPT
+from rauda_core.schemas import Evaluation, SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 

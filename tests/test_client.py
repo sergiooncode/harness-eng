@@ -3,7 +3,7 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from evaluator.schemas import Evaluation
+from rauda_core.schemas import Evaluation
 from evaluator.client import evaluate_reply
 
 
