@@ -1,0 +1,21 @@
+{
+  "headers": {
+    "Authorization": "Bearer test_token_123"
+  },
+  "body": "",
+  "payload": {
+    "event": "ticket_created",
+    "ticket": {
+      "id": "12345",
+      "subject": "My order is missing",
+      "description": "I placed an order 2 weeks ago and it still hasn't arrived.",
+      "requester": {
+        "email": "customer@example.com",
+        "name": "Jane Doe"
+      },
+      "status": "new",
+      "priority": "high",
+      "tags": ["shipping", "urgent"]
+    }
+  }
+}

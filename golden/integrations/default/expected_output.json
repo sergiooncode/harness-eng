@@ -1,0 +1,14 @@
+{
+  "event_type": "ticket_created",
+  "ticket": {
+    "ticket_id": "12345",
+    "subject": "My order is missing",
+    "description": "I placed an order 2 weeks ago and it still hasn't arrived.",
+    "requester_email": "customer@example.com",
+    "requester_name": "Jane Doe",
+    "status": "new",
+    "priority": "high",
+    "tags": ["shipping", "urgent"],
+    "custom_fields": {}
+  }
+}

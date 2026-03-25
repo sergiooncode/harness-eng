@@ -1,0 +1,30 @@
+anti_patterns:
+  - name: "Client-specific code in rauda_core"
+    description: "rauda_core/ must never contain client-specific logic, field names, or API URLs."
+    why: "rauda_core is the reusable framework. Client-specific code goes in clients/<slug>/."
+    example: "if client_name == 'acme': ..."
+
+  - name: "Per-implementation harness code"
+    description: "The harness must auto-discover extension implementations. Never add checks for a specific writer or integration."
+    why: "Per-implementation checks don't scale and become stale when implementations change."
+    example: "if cls == CsvWriter: check_csv_specific_thing()"
+
+  - name: "Overriding handle_webhook"
+    description: "Client integrations must not override handle_webhook. It is the standard pipeline."
+    why: "The pipeline order (validate -> parse -> enrich -> decide -> execute) is a Rauda Core invariant."
+    example: "def handle_webhook(self, ...): # custom pipeline"
+
+  - name: "HTTP calls in parse_webhook"
+    description: "parse_webhook must be a pure data transformation. No network calls."
+    why: "Parsing is synchronous and deterministic. Side effects belong in enrich_context or execute_action."
+    example: "def parse_webhook(self, payload): requests.get(...)"
+
+  - name: "Logging or printing API tokens"
+    description: "API tokens must never appear in logs, error messages, or console output."
+    why: "Tokens leaked in logs can be harvested from CI artifacts or monitoring systems."
+    example: "logger.info(f'Using token {api_token}')"
+
+  - name: "Duplicating _extract_field across clients"
+    description: "Field extraction logic lives in DefaultIntegration. Don't copy it into client code."
+    why: "The previous acme_corp and globex integrations had identical _extract_field helpers."
+    example: "class AcmeIntegration: @staticmethod def _extract_field(...)  # duplicated"

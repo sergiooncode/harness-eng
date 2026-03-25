@@ -3,5 +3,20 @@ name = "cs-agent"
 version = "0.0.1"
 dependencies = [
     "pyyaml>=6.0.3",
+    "openai>=1.68",
+    "pydantic>=2.0",
+    "python-dotenv>=1.0",
+    "pyairtable>=2.0",
 ]
-requires-python = ">=3.14.3"
+requires-python = ">=3.12"
+
+[tool.setuptools.packages.find]
+include = ["rauda_core*", "evaluator*", "harness*"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

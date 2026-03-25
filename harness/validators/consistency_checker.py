@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 import yaml
 
-from harness.schema import WebhookEventType
+from rauda_core.schemas import WebhookEventType
 
 
 class ConsistencyIssue:
@@ -55,16 +55,12 @@ class ConsistencyChecker:
             config_path = client_dir / "config.yaml"
             integration_path = client_dir / "integration.py"
 
-            # Check files exist in pairs
+            # config.yaml is required; integration.py is optional (DefaultIntegration)
             if not config_path.exists():
                 issues.append(ConsistencyIssue(
                     name, "ORPHAN", "integration.py exists without config.yaml", "error"
                 ))
                 continue
-            if not integration_path.exists():
-                issues.append(ConsistencyIssue(
-                    name, "ORPHAN", "config.yaml exists without integration.py", "error"
-                ))
 
             try:
                 with open(config_path) as f:

@@ -1,8 +1,7 @@
-"""
-harness/registry.py — Integration discovery and registration.
+"""Integration discovery and registration.
 
 Auto-discovers client integrations from the clients/ directory,
-validates them through the harness, and registers them for use.
+loads configs and integration classes, and registers them for use.
 """
 
 import importlib.util
@@ -12,17 +11,17 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
 
-from harness.schema import (
+from rauda_core.schemas import (
     ClientConfig, WebhookConfig, FieldMapping, InfoRepository,
     ClientAction, EvalConfig, SupportPlatform, WebhookEventType, ActionType,
 )
-from harness.integrations.base import BaseIntegration
-from harness.validators.schema_validator import validate_config
-from harness.validators.structural_linter import lint_integration
+from rauda_core.interfaces.integration import BaseIntegration
+from rauda_core.integrations.default import DefaultIntegration
 
 
 @dataclass
 class RegistrationResult:
+    """Outcome of registering a client integration."""
     client_slug: str
     success: bool
     integration: Optional[BaseIntegration] = None
@@ -33,7 +32,7 @@ class RegistrationResult:
             self.errors = []
 
 
-def _load_config_from_yaml(config_path: Path) -> ClientConfig:
+def load_config_from_yaml(config_path: Path) -> ClientConfig:
     """Parse config.yaml into a typed ClientConfig dataclass."""
     with open(config_path) as f:
         raw = yaml.safe_load(f)
@@ -86,20 +85,20 @@ def _load_config_from_yaml(config_path: Path) -> ClientConfig:
     )
 
 
-def _load_integration_class(integration_path: Path) -> type:
+def load_integration_class(integration_path: Path) -> type:
     """Dynamically load integration.py and find the BaseIntegration subclass."""
     spec = importlib.util.spec_from_file_location("client_integration", integration_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules["client_integration"] = module
     spec.loader.exec_module(module)
 
-    # Find the BaseIntegration subclass
     for attr_name in dir(module):
         attr = getattr(module, attr_name)
         if (
             isinstance(attr, type)
             and issubclass(attr, BaseIntegration)
             and attr is not BaseIntegration
+            and attr is not DefaultIntegration
         ):
             return attr
 
@@ -107,40 +106,30 @@ def _load_integration_class(integration_path: Path) -> type:
 
 
 def register_client(client_dir: Path) -> RegistrationResult:
-    """Register a single client integration through the full harness pipeline.
-    
+    """Register a single client integration.
+
     Pipeline:
-    1. Validate config.yaml schema
-    2. Lint integration.py structure
-    3. Load and instantiate the integration
+    1. Load config from config.yaml
+    2. Load integration class from integration.py (or use DefaultIntegration)
+    3. Instantiate the integration
     """
     slug = client_dir.name
     config_path = client_dir / "config.yaml"
     integration_path = client_dir / "integration.py"
 
-    # Step 1: Config validation
-    config_errors = validate_config(config_path)
-    if any(e.severity == "error" for e in config_errors):
+    if not config_path.exists():
         return RegistrationResult(
             client_slug=slug,
             success=False,
-            errors=[repr(e) for e in config_errors],
+            errors=[f"Missing {config_path}"],
         )
 
-    # Step 2: Structural linting
-    if integration_path.exists():
-        lint_issues = lint_integration(integration_path)
-        if any(i.severity == "error" for i in lint_issues):
-            return RegistrationResult(
-                client_slug=slug,
-                success=False,
-                errors=[repr(i) for i in lint_issues],
-            )
-
-    # Step 3: Load config and integration
     try:
-        config = _load_config_from_yaml(config_path)
-        integration_cls = _load_integration_class(integration_path)
+        config = load_config_from_yaml(config_path)
+        if integration_path.exists():
+            integration_cls = load_integration_class(integration_path)
+        else:
+            integration_cls = DefaultIntegration
         integration = integration_cls(config)
     except Exception as e:
         return RegistrationResult(
@@ -157,7 +146,7 @@ def register_client(client_dir: Path) -> RegistrationResult:
 
 
 def discover_and_register(clients_dir: Path) -> dict[str, RegistrationResult]:
-    """Discover all clients and register them through the harness."""
+    """Discover all clients and register them."""
     results = {}
     if not clients_dir.exists():
         return results

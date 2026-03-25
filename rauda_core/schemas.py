@@ -1,17 +1,48 @@
-"""
-harness/schema.py — Typed contracts for Rauda integrations.
+"""Shared data models for Rauda Core.
 
-This is the SINGLE SOURCE OF TRUTH for what a client integration must provide.
-Any AI agent or non-developer creating a new integration should reference this file.
-
-A valid integration consists of:
-  1. A config.yaml matching ClientConfig schema
-  2. An integration.py that subclasses BaseIntegration and implements all required methods
+Contains both evaluation schemas (used by the evaluator pipeline) and
+client configuration schemas (used by integrations and the harness).
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
 from enum import Enum
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
+
+
+# ---------------------------------------------------------------------------
+# Evaluation schemas (evaluator pipeline)
+# ---------------------------------------------------------------------------
+
+SYSTEM_PROMPT = """\
+You are an expert evaluator of customer support replies.
+
+Given a customer support ticket and an AI-generated reply, evaluate the reply on two dimensions:
+
+1. **Content** (relevance, correctness, completeness):
+   - Does the reply address the customer's issue?
+   - Is the information provided accurate?
+   - Does it cover everything the customer needs to know?
+
+2. **Format** (clarity, structure, grammar/spelling):
+   - Is the reply clearly written and easy to understand?
+   - Is it well-structured and appropriately concise?
+   - Is it free of grammar and spelling errors?
+
+Score each dimension from 1 to 5.
+
+Provide a brief explanation (1-2 sentences) for each score.\
+"""
+
+
+class Evaluation(BaseModel):
+    """Structured evaluation result from GPT-4o."""
+
+    content_score: int = Field(ge=1, le=5, description="Content score from 1 to 5")
+    content_explanation: str = Field(description="Brief explanation of the content score")
+    format_score: int = Field(ge=1, le=5, description="Format score from 1 to 5")
+    format_explanation: str = Field(description="Brief explanation of the format score")
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +70,7 @@ class ActionType(str, Enum):
 
 
 # ---------------------------------------------------------------------------
-# Config schema — what goes in config.yaml per client
+# Client config schema — what goes in config.yaml per client
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -82,7 +113,7 @@ class EvalConfig:
 @dataclass
 class FieldMapping:
     """Maps platform-specific field names to Rauda's canonical field names.
-    
+
     This is the key standardization point — different Zendesk instances
     may use different custom fields, but Rauda Core works with canonical names.
     """
@@ -100,7 +131,7 @@ class FieldMapping:
 @dataclass
 class ClientConfig:
     """Top-level config for a client integration.
-    
+
     This is what a non-developer fills in (via config.yaml) to onboard a new client.
     The harness validates this config mechanically before anything runs.
     """
@@ -114,7 +145,6 @@ class ClientConfig:
     eval: EvalConfig = field(default_factory=EvalConfig)
 
     def __post_init__(self):
-        # Enforce slug format
         if not self.client_slug.replace("_", "").replace("-", "").isalnum():
             raise ValueError(
                 f"client_slug must be alphanumeric with underscores/hyphens, "

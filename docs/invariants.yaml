@@ -1,0 +1,4 @@
+invariants:
+  - "Every evaluation row sent to Airtable must have all 6 fields. Partial rows are never acceptable."
+  - "Writers never transform scores. A content_score of 3 from the evaluator must arrive as 3 in the output."
+  - "Client API tokens are never logged, printed, or included in error messages."

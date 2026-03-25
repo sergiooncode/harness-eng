@@ -58,13 +58,7 @@ class Harness:
         if not config_path.exists():
             structure_issues.append(
                 f"Missing {config_path}. Create config.yaml following the schema in "
-                f"harness/schema.py — see ClientConfig dataclass for all required fields."
-            )
-        if not integration_path.exists():
-            structure_issues.append(
-                f"Missing {integration_path}. Create integration.py with a class that "
-                f"subclasses BaseIntegration from harness.integrations.base and implements: "
-                f"validate_webhook, parse_webhook, enrich_context, execute_action."
+                f"rauda_core/schemas.py — see ClientConfig dataclass for all required fields."
             )
 
         result["checks"]["structure"] = {
@@ -97,26 +91,32 @@ class Harness:
         if not config_passed:
             result["passed"] = False
 
-        # --- Check 3: Structural linting of integration.py ---
-        lint_issues = self.structural_linter.lint_file(integration_path)
-        lint_items = []
-        for issue in lint_issues:
-            lint_items.append({
-                "rule": issue.rule,
-                "line": issue.line,
-                "message": issue.message,
-                "severity": issue.severity,
-                "fix_hint": self._lint_fix_hint(issue.rule),
-            })
+        # --- Check 3: Structural linting of integration.py (if present) ---
+        if integration_path.exists():
+            lint_issues = self.structural_linter.lint_file(integration_path)
+            lint_items = []
+            for issue in lint_issues:
+                lint_items.append({
+                    "rule": issue.rule,
+                    "line": issue.line,
+                    "message": issue.message,
+                    "severity": issue.severity,
+                    "fix_hint": self._lint_fix_hint(issue.rule),
+                })
 
-        lint_passed = not any(i.severity == "error" for i in lint_issues)
-        result["checks"]["structural_lint"] = {
-            "passed": lint_passed,
-            "file": str(integration_path),
-            "issues": lint_items,
-        }
-        if not lint_passed:
-            result["passed"] = False
+            lint_passed = not any(i.severity == "error" for i in lint_issues)
+            result["checks"]["structural_lint"] = {
+                "passed": lint_passed,
+                "file": str(integration_path),
+                "issues": lint_items,
+            }
+            if not lint_passed:
+                result["passed"] = False
+        else:
+            result["checks"]["structural_lint"] = {
+                "passed": True,
+                "message": "No integration.py — DefaultIntegration will be used.",
+            }
 
         # --- Check 4: Try to actually load the integration ---
         load_result = self._try_load(client_dir, config_path, integration_path)
@@ -131,11 +131,12 @@ class Harness:
         return result
 
     def check_all(self, clients_dir: Path) -> dict[str, Any]:
-        """Run harness on all clients + cross-client consistency checks."""
+        """Run harness on all clients + cross-client consistency + writer interface checks."""
         clients_dir = Path(clients_dir)
         result = {
             "passed": True,
             "clients": {},
+            "writers": {},
             "consistency": {},
             "summary": "",
         }
@@ -148,6 +149,29 @@ class Harness:
                     result["clients"][client_dir.name] = client_result
                     if not client_result["passed"]:
                         result["passed"] = False
+
+        # Auto-discover and lint ResultWriter implementations
+        writers_dir = Path(__file__).resolve().parent.parent / "rauda_core" / "writers"
+        if writers_dir.exists():
+            for py_file in sorted(writers_dir.glob("*.py")):
+                if py_file.name.startswith("_"):
+                    continue
+                lint_issues = self.structural_linter.lint_file(
+                    py_file,
+                    base_class_name="ResultWriter",
+                    required_methods={"write"},
+                )
+                writer_passed = not any(i.severity == "error" for i in lint_issues)
+                result["writers"][py_file.stem] = {
+                    "passed": writer_passed,
+                    "file": str(py_file),
+                    "issues": [
+                        {"rule": i.rule, "line": i.line, "message": i.message, "severity": i.severity}
+                        for i in lint_issues
+                    ],
+                }
+                if not writer_passed:
+                    result["passed"] = False
 
         # Cross-client consistency
         consistency_issues = self.consistency_checker.check_all(clients_dir)
@@ -166,9 +190,14 @@ class Harness:
         }
 
         # Summary
-        total = len(result["clients"])
-        passed = sum(1 for c in result["clients"].values() if c["passed"])
-        result["summary"] = f"{passed}/{total} clients passed all checks."
+        total_clients = len(result["clients"])
+        passed_clients = sum(1 for c in result["clients"].values() if c["passed"])
+        total_writers = len(result["writers"])
+        passed_writers = sum(1 for w in result["writers"].values() if w["passed"])
+        result["summary"] = (
+            f"{passed_clients}/{total_clients} clients passed, "
+            f"{passed_writers}/{total_writers} writers passed."
+        )
 
         return result
 
@@ -187,12 +216,12 @@ class Harness:
             "client_slug": "Add 'client_slug: \"your_client\"' (lowercase, alphanumeric with _ or -)",
             "platform": "Add 'platform: \"zendesk\"' or 'platform: \"intercom\"'",
             "webhook": "Add a 'webhook:' section with subscribed_events, auth_method, auth_secret_env_var",
-            "field_mapping": "Add a 'field_mapping:' section. See harness/schema.py FieldMapping for defaults.",
+            "field_mapping": "Add a 'field_mapping:' section. See rauda_core/schemas.py FieldMapping for defaults.",
         }
         for key, hint in hints.items():
             if key in field_path:
                 return hint
-        return f"Fix the field at '{field_path}'. Refer to harness/schema.py for the expected shape."
+        return f"Fix the field at '{field_path}'. Refer to rauda_core/schemas.py for the expected shape."
 
     def _lint_fix_hint(self, rule: str) -> str:
         hints = {
@@ -204,7 +233,7 @@ class Harness:
             "STRUCT-003": (
                 "Implement the missing method. Required methods: "
                 "validate_webhook, parse_webhook, enrich_context, execute_action. "
-                "See harness/integrations/base.py for signatures."
+                "See rauda_core/interfaces/integration.py for signatures."
             ),
             "STRUCT-004": (
                 "Remove your handle_webhook override. The standard pipeline in "
@@ -225,9 +254,13 @@ class Harness:
     def _try_load(self, client_dir: Path, config_path: Path, integration_path: Path) -> dict:
         """Try to actually import and instantiate the integration."""
         try:
-            from harness.registry import _load_config_from_yaml, _load_integration_class
-            config = _load_config_from_yaml(config_path)
-            cls = _load_integration_class(integration_path)
+            from rauda_core.integrations.registry import load_config_from_yaml, load_integration_class
+            from rauda_core.integrations.default import DefaultIntegration
+            config = load_config_from_yaml(config_path)
+            if integration_path.exists():
+                cls = load_integration_class(integration_path)
+            else:
+                cls = DefaultIntegration
             instance = cls(config)
             return {
                 "passed": True,

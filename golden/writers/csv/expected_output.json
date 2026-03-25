@@ -1,0 +1,18 @@
+[
+  {
+    "ticket": "I ordered a laptop 3 weeks ago and it still hasn't arrived.",
+    "reply": "I've looked into your order and it was shipped on March 10th. You should receive an update within 24 hours.",
+    "content_score": "4",
+    "content_explanation": "Addresses the issue with shipping details but doesn't offer a resolution if it remains delayed.",
+    "format_score": "5",
+    "format_explanation": "Clear, concise, well-structured response."
+  },
+  {
+    "ticket": "How do I reset my password?",
+    "reply": "",
+    "content_score": "",
+    "content_explanation": "",
+    "format_score": "",
+    "format_explanation": ""
+  }
+]

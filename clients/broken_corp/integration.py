@@ -3,14 +3,14 @@
 import requests  # FORBIDDEN in parse_webhook
 from typing import Any
 
-from harness.integrations.base import (
+from rauda_core.interfaces.integration import (
     BaseIntegration,
     CanonicalTicket,
     EnrichedContext,
     AgentDecision,
     ActionResult,
 )
-from harness.schema import WebhookEventType, ActionType
+from rauda_core.schemas import WebhookEventType, ActionType
 
 
 class BrokenCorpIntegration(BaseIntegration):

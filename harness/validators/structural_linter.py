@@ -30,7 +30,7 @@ class LintIssue:
         return f"[{self.severity.upper()}] {self.file}:{self.line} ({self.rule}): {self.message}"
 
 
-REQUIRED_METHODS = {
+INTEGRATION_REQUIRED_METHODS = {
     "validate_webhook",
     "parse_webhook",
     "enrich_context",
@@ -44,9 +44,16 @@ FORBIDDEN_IN_PARSE_WEBHOOK = {
 
 
 class StructuralLinter:
-    """AST-based linter for integration.py files."""
+    """AST-based linter for Python files implementing an abstract base class."""
 
-    def lint_file(self, file_path: Path) -> list[LintIssue]:
+    def lint_file(
+        self,
+        file_path: Path,
+        base_class_name: str = "BaseIntegration",
+        required_methods: set[str] | None = None,
+    ) -> list[LintIssue]:
+        if required_methods is None:
+            required_methods = INTEGRATION_REQUIRED_METHODS
         issues: list[LintIssue] = []
         source = file_path.read_text()
         filename = str(file_path)
@@ -57,76 +64,75 @@ class StructuralLinter:
             issues.append(LintIssue(filename, e.lineno or 0, "PARSE", f"Syntax error: {e.msg}"))
             return issues
 
-        # Find integration classes
-        integration_classes = self._find_integration_classes(tree)
+        # Find subclasses of the target base class
+        subclasses = self._find_subclasses(tree, base_class_name)
 
-        if len(integration_classes) == 0:
+        if len(subclasses) == 0:
             issues.append(LintIssue(
                 filename, 1, "STRUCT-001",
-                "No class inheriting from BaseIntegration found. "
-                "Integration must define exactly one such class."
+                f"No class inheriting from {base_class_name} found. "
+                f"File must define exactly one such class."
             ))
             return issues
 
-        if len(integration_classes) > 1:
-            for cls in integration_classes[1:]:
+        if len(subclasses) > 1:
+            for cls in subclasses[1:]:
                 issues.append(LintIssue(
                     filename, cls.lineno, "STRUCT-002",
-                    f"Multiple BaseIntegration subclasses found: '{cls.name}'. "
-                    "Only one is allowed per integration.py."
+                    f"Multiple {base_class_name} subclasses found: '{cls.name}'. "
+                    "Only one is allowed per file."
                 ))
 
-        cls_node = integration_classes[0]
+        cls_node = subclasses[0]
 
         # Check required methods are implemented
         implemented_methods = {
             node.name for node in ast.walk(cls_node)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
-        missing = REQUIRED_METHODS - implemented_methods
+        missing = required_methods - implemented_methods
         for method in sorted(missing):
             issues.append(LintIssue(
                 filename, cls_node.lineno, "STRUCT-003",
                 f"Required method '{method}' not implemented."
             ))
 
-        # Check handle_webhook is NOT overridden (it's the standard pipeline)
-        if "handle_webhook" in implemented_methods:
-            issues.append(LintIssue(
-                filename, cls_node.lineno, "STRUCT-004",
-                "Method 'handle_webhook' must NOT be overridden. "
-                "It is the standard pipeline in BaseIntegration."
-            ))
+        # BaseIntegration-specific checks
+        if base_class_name == "BaseIntegration":
+            if "handle_webhook" in implemented_methods:
+                issues.append(LintIssue(
+                    filename, cls_node.lineno, "STRUCT-004",
+                    "Method 'handle_webhook' must NOT be overridden. "
+                    "It is the standard pipeline in BaseIntegration."
+                ))
 
-        # Check parse_webhook doesn't do HTTP calls
-        for node in ast.walk(cls_node):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if node.name == "parse_webhook":
-                    issues.extend(self._check_no_side_effects(node, filename))
+            for node in ast.walk(cls_node):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if node.name == "parse_webhook":
+                        issues.extend(self._check_no_side_effects(node, filename))
 
-        # Check _get_ai_decision is NOT overridden in production code
-        if "_get_ai_decision" in implemented_methods:
-            issues.append(LintIssue(
-                filename, cls_node.lineno, "STRUCT-005",
-                "Method '_get_ai_decision' should not be overridden in integration code. "
-                "AI decision logic lives in Rauda Core.",
-                severity="warning",
-            ))
+            if "_get_ai_decision" in implemented_methods:
+                issues.append(LintIssue(
+                    filename, cls_node.lineno, "STRUCT-005",
+                    "Method '_get_ai_decision' should not be overridden in integration code. "
+                    "AI decision logic lives in Rauda Core.",
+                    severity="warning",
+                ))
 
         return issues
 
-    def _find_integration_classes(self, tree: ast.Module) -> list[ast.ClassDef]:
-        """Find all classes that appear to inherit from BaseIntegration."""
+    def _find_subclasses(self, tree: ast.Module, base_class_name: str) -> list[ast.ClassDef]:
+        """Find all classes that inherit from the given base class name."""
         result = []
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
                 for base in node.bases:
-                    base_name = ""
+                    name = ""
                     if isinstance(base, ast.Name):
-                        base_name = base.id
+                        name = base.id
                     elif isinstance(base, ast.Attribute):
-                        base_name = base.attr
-                    if base_name == "BaseIntegration":
+                        name = base.attr
+                    if name == base_class_name:
                         result.append(node)
         return result
 

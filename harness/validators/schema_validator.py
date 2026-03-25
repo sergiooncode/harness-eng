@@ -10,7 +10,7 @@ from pathlib import Path
 from dataclasses import fields
 from typing import get_type_hints
 
-from harness.schema import (
+from rauda_core.schemas import (
     ClientConfig, WebhookConfig, InfoRepository, ClientAction,
     EvalConfig, FieldMapping, SupportPlatform, WebhookEventType, ActionType,
 )
