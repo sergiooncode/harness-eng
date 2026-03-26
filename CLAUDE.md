@@ -85,6 +85,7 @@ auto-discovers it. This file doesn't change.
 - harness/ only contains validation code. It checks things, it never implements business logic.
 - rauda_core/ contains interfaces, schemas, writers, and standard implementations.
 - The harness imports from rauda_core to know what to validate against. rauda_core never imports from harness.
+- The harness auto-discovers what to validate. Adding a new extension point means registering a validator, not modifying harness logic.
 
 # Decisions
 

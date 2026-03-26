@@ -1,0 +1,20 @@
+name: "ticket_response"
+channel: "chat"
+steps:
+  - name: "classify_intent"
+    type: "llm"
+    model: "gpt-4o"
+    prompt_template: "Classify this ticket intent: {ticket}"
+    output_key: "intent"
+
+  - name: "check_order_status"
+    type: "code"
+    function: "lookup_order"
+    input_keys: ["intent", "ticket"]
+    output_key: "order_data"
+
+  - name: "compose_reply"
+    type: "llm"
+    model: "gpt-4o"
+    prompt_template: "Given {intent} and {order_data}, write a reply to: {ticket}"
+    output_key: "reply"

@@ -6,24 +6,25 @@ Rauda's core platform for AI-powered customer support ticket handling. Provides 
 
 ```
 rauda_core/          # Reusable framework — interfaces, schemas, standard implementations
-  interfaces/        # Base classes for extension points (ResultWriter, BaseIntegration)
+  interfaces/        # Base classes for extension points (ResultWriter, BaseIntegration, BaseStep)
   schemas.py         # Shared data models (Evaluation, ClientConfig, enums)
   config.py          # Client config loading from YAML
   writers/           # Writer implementations (CSV, Airtable)
   integrations/      # Integration implementations (DefaultIntegration) + registry
+  workflows/         # Workflow step implementations (LlmStep, CodeStep) + runner
 
 evaluator/           # Ticket reply evaluation via GPT-4o
   client.py          # Async OpenAI evaluation calls
   csv_io.py          # CSV reading
 
 clients/             # Per-client configuration (one folder per client)
-  acme_corp/         # Config-only client
+  acme_corp/         # Config-only client with workflow
   globex/            # Config-only client
   broken_corp/       # Deliberately broken client for harness testing
 
 harness/             # Auto-discovers and validates all extension points
-  harness.py         # CLI entry point
-  validators/        # Structural linter, schema validator, consistency checker
+  harness.py         # CLI entry point + validator registry
+  validators/        # Schema validators, structural linter, consistency checker, golden validator
 
 golden/              # Behavioral contracts (input/expected output pairs)
 docs/                # ADRs, invariants, anti-patterns
@@ -43,6 +44,23 @@ Current extension points:
 |-----------|-----------|----------------------|---------|
 | Writers | `ResultWriter` | `CsvWriter`, `AirtableWriter` | Output evaluation results |
 | Integrations | `BaseIntegration` | `DefaultIntegration` | Webhook auth, field mapping, enrichment, actions |
+| Workflows | `BaseStep` | `LlmStep`, `CodeStep` | Orchestrated step-by-step ticket handling |
+
+## Harness
+
+The harness uses a **validator registry** — a dict mapping client artifact filenames to validators:
+
+```python
+CLIENT_VALIDATORS = {
+    "config.yaml": ConfigValidator(),
+    "integration.py": StructuralLinter(base_class_name="BaseIntegration", ...),
+    "workflow.yaml": WorkflowValidator(),
+}
+```
+
+`check_client` scans a client directory and runs every registered validator against matching files. Adding a new extension point means adding one line to the registry — no harness logic changes.
+
+Writers are validated separately via auto-discovery of `rauda_core/writers/*.py`, with structural linting and golden dataset checks.
 
 ## Setup
 
@@ -85,13 +103,14 @@ make test
 python -m harness.harness check-all clients/
 ```
 
-The harness auto-discovers all writers and client integrations, validates them against their base interfaces, checks config schemas, and runs golden dataset behavioral checks. Output is structured JSON with fix hints.
+Output is structured JSON with fix hints for AI agent self-correction.
 
 ## Onboarding a New Client
 
-1. Create `clients/<client_name>/config.yaml` with the required fields (see `rauda_core/schemas.py` for the `ClientConfig` schema).
-2. Run `python -m harness.harness check-all clients/` to validate.
-3. If the client needs custom behavior beyond what config supports, add an `integration.py` that subclasses `DefaultIntegration` and overrides the relevant methods.
+1. Create `clients/<client_name>/config.yaml` (see `rauda_core/schemas.py` for the `ClientConfig` schema).
+2. Optionally add `workflow.yaml` to define the ticket handling steps.
+3. Run `python -m harness.harness check-all clients/` to validate.
+4. If the client needs custom behavior, add `integration.py` subclassing `DefaultIntegration`.
 
 No changes to `rauda_core/` are needed.
 
@@ -99,9 +118,10 @@ No changes to `rauda_core/` are needed.
 
 Per the goals in CLAUDE.md:
 
-- **Extracted reusable parts into `rauda_core/`**: base interfaces (`ResultWriter`, `BaseIntegration`), shared schemas and enums, client config loading, standard implementations (`CsvWriter`, `AirtableWriter`, `DefaultIntegration`), and the client registry.
-- **Made extension points pluggable**: each has an ABC in `rauda_core/interfaces/`, a default implementation, and the pipeline is implementation-agnostic. `evaluate.py` uses `ResultWriter` without knowing which writer it gets.
-- **Built the harness**: auto-discovers writers in `rauda_core/writers/` and integrations in `clients/*/`, validates structural conformance via AST linting, checks config schemas, and runs consistency checks. No per-implementation harness code. Outputs structured JSON with `next_steps` for AI agent self-correction.
+- **Extracted reusable parts into `rauda_core/`**: base interfaces (`ResultWriter`, `BaseIntegration`, `BaseStep`), shared schemas and enums, client config loading, standard implementations (`CsvWriter`, `AirtableWriter`, `DefaultIntegration`, `LlmStep`, `CodeStep`, `WorkflowRunner`), and the client registry.
+- **Made extension points pluggable**: each has an ABC in `rauda_core/interfaces/`, a default implementation, and the pipeline is implementation-agnostic.
+- **Built the harness with registry-based validation**: a `CLIENT_VALIDATORS` dict maps filenames to validators. `check_client` loops over the registry — no per-artifact if/else chains. Adding a new extension point = one line in the registry. Writers are auto-discovered from `rauda_core/writers/`. Golden dataset behavioral checks validate deterministic input/output contracts.
 - **Created grounding material**: golden datasets for writers and integrations, ADR for extension point architecture, `docs/invariants.yaml`, `docs/anti-patterns.yaml`.
-- **Preserved the evaluator flow**: `evaluate.py` still reads CSV, evaluates via GPT-4o, and writes results. Default output is now Airtable (configurable via env vars or YAML config).
-- **Config-only client onboarding**: clients like `acme_corp` and `globex` have only a `config.yaml` — `DefaultIntegration` handles them automatically.
+- **Preserved the evaluator flow**: `evaluate.py` still reads CSV, evaluates via GPT-4o, and writes results. Default output is Airtable (configurable via env vars or YAML config).
+- **Config-only client onboarding**: clients like `acme_corp` and `globex` need only a `config.yaml` — `DefaultIntegration` handles them automatically.
+- **Workflow orchestration**: linear step pipeline where each step reads from and writes to a shared context dict. Steps are either LLM calls or code functions, defined declaratively in `workflow.yaml`. The harness validates step structure, model presence, output key uniqueness, and input key dependencies.

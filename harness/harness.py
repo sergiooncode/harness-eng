@@ -19,28 +19,41 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from harness.validators.schema_validator import ConfigValidator
+from harness.validators.schema_validator import ConfigValidator, WorkflowValidator
 from harness.validators.structural_linter import StructuralLinter
 from harness.validators.consistency_checker import ConsistencyChecker
+from harness.validators.golden_validator import validate_writer, validate_integration
 from harness.evals.spec_compliance import SpecComplianceEvaluator
+
+# ------------------------------------------------------------------
+# Validator registry — one entry per client artifact type.
+# Adding a new extension point = adding one line here.
+# ------------------------------------------------------------------
+CLIENT_VALIDATORS: dict[str, Any] = {
+    "config.yaml": ConfigValidator(),
+    "integration.py": StructuralLinter(
+        base_class_name="BaseIntegration",
+        required_methods={"validate_webhook", "parse_webhook", "enrich_context", "execute_action"},
+    ),
+    "workflow.yaml": WorkflowValidator(),
+}
 
 
 class Harness:
     """The harness the AI agent runs against its own output."""
 
     def __init__(self):
-        self.config_validator = ConfigValidator()
-        self.structural_linter = StructuralLinter()
         self.consistency_checker = ConsistencyChecker()
         self.spec_evaluator = SpecComplianceEvaluator()
 
     def check_client(self, client_dir: Path) -> dict[str, Any]:
-        """Run all harness checks on a single client integration.
+        """Run all harness checks on a single client.
 
-        Returns structured JSON the agent can parse and act on.
+        Scans the client directory and runs every registered validator
+        against matching files. No per-artifact branching.
         """
         client_dir = Path(client_dir)
-        result = {
+        result: dict[str, Any] = {
             "client": client_dir.name,
             "passed": True,
             "checks": {},
@@ -48,92 +61,66 @@ class Harness:
             "next_steps": [],
         }
 
-        # --- Check 1: Does the directory structure exist? ---
-        config_path = client_dir / "config.yaml"
-        integration_path = client_dir / "integration.py"
-
-        structure_issues = []
+        # Pre-check: directory and config.yaml must exist
         if not client_dir.exists():
-            structure_issues.append(f"Directory {client_dir} does not exist. Create it first.")
-        if not config_path.exists():
-            structure_issues.append(
-                f"Missing {config_path}. Create config.yaml following the schema in "
-                f"rauda_core/schemas.py — see ClientConfig dataclass for all required fields."
-            )
-
-        result["checks"]["structure"] = {
-            "passed": len(structure_issues) == 0,
-            "issues": structure_issues,
-        }
-        if structure_issues:
             result["passed"] = False
+            result["checks"]["structure"] = {
+                "passed": False,
+                "issues": [f"Directory {client_dir} does not exist. Create it first."],
+            }
             result["summary"] = "Missing files. See next_steps."
-            result["next_steps"] = structure_issues
+            result["next_steps"] = result["checks"]["structure"]["issues"]
             return result
 
-        # --- Check 2: Config schema validation ---
-        config_errors = self.config_validator.validate_file(config_path)
-        config_issues = []
-        for err in config_errors:
-            config_issues.append({
-                "field": err.path,
-                "message": err.message,
-                "severity": err.severity,
-                "fix_hint": self._config_fix_hint(err.path, err.message),
-            })
-
-        config_passed = not any(e.severity == "error" for e in config_errors)
-        result["checks"]["config_schema"] = {
-            "passed": config_passed,
-            "file": str(config_path),
-            "issues": config_issues,
-        }
-        if not config_passed:
+        config_path = client_dir / "config.yaml"
+        if not config_path.exists():
             result["passed"] = False
-
-        # --- Check 3: Structural linting of integration.py (if present) ---
-        if integration_path.exists():
-            lint_issues = self.structural_linter.lint_file(integration_path)
-            lint_items = []
-            for issue in lint_issues:
-                lint_items.append({
-                    "rule": issue.rule,
-                    "line": issue.line,
-                    "message": issue.message,
-                    "severity": issue.severity,
-                    "fix_hint": self._lint_fix_hint(issue.rule),
-                })
-
-            lint_passed = not any(i.severity == "error" for i in lint_issues)
-            result["checks"]["structural_lint"] = {
-                "passed": lint_passed,
-                "file": str(integration_path),
-                "issues": lint_items,
+            result["checks"]["structure"] = {
+                "passed": False,
+                "issues": [
+                    f"Missing {config_path}. Create config.yaml following the schema in "
+                    f"rauda_core/schemas.py — see ClientConfig dataclass for all required fields."
+                ],
             }
-            if not lint_passed:
-                result["passed"] = False
-        else:
-            result["checks"]["structural_lint"] = {
-                "passed": True,
-                "message": "No integration.py — DefaultIntegration will be used.",
-            }
+            result["summary"] = "Missing files. See next_steps."
+            result["next_steps"] = result["checks"]["structure"]["issues"]
+            return result
 
-        # --- Check 4: Try to actually load the integration ---
+        # Run every registered validator against matching files
+        for filename, validator in CLIENT_VALIDATORS.items():
+            filepath = client_dir / filename
+            if filepath.exists():
+                result["checks"][filename] = validator.validate(filepath)
+                if not result["checks"][filename]["passed"]:
+                    result["passed"] = False
+
+        # Try to load the integration
+        integration_path = client_dir / "integration.py"
         load_result = self._try_load(client_dir, config_path, integration_path)
         result["checks"]["load"] = load_result
         if not load_result["passed"]:
             result["passed"] = False
 
-        # --- Build summary and next_steps ---
+        # Golden dataset behavioral check
+        if load_result["passed"]:
+            golden_dir = Path(__file__).resolve().parent.parent / "golden"
+            golden_result = self._check_integration_golden(
+                config_path, integration_path, golden_dir,
+            )
+            result["checks"]["golden"] = golden_result
+            if not golden_result["passed"]:
+                result["passed"] = False
+
+        # Build summary and next_steps
         result["summary"] = self._build_summary(result)
         result["next_steps"] = self._build_next_steps(result)
 
         return result
 
     def check_all(self, clients_dir: Path) -> dict[str, Any]:
-        """Run harness on all clients + cross-client consistency + writer interface checks."""
+        """Run harness on all clients + cross-client consistency + writer checks."""
         clients_dir = Path(clients_dir)
-        result = {
+        result: dict[str, Any] = {
             "passed": True,
             "clients": {},
             "writers": {},
@@ -141,7 +128,7 @@ class Harness:
             "summary": "",
         }
 
-        # Check each client individually
+        # Check each client
         if clients_dir.exists():
             for client_dir in sorted(clients_dir.iterdir()):
                 if client_dir.is_dir() and not client_dir.name.startswith("."):
@@ -150,43 +137,38 @@ class Harness:
                     if not client_result["passed"]:
                         result["passed"] = False
 
-        # Auto-discover and lint ResultWriter implementations
+        # Auto-discover and validate writers
+        golden_dir = Path(__file__).resolve().parent.parent / "golden"
+        writer_linter = StructuralLinter(
+            base_class_name="ResultWriter",
+            required_methods={"write"},
+        )
         writers_dir = Path(__file__).resolve().parent.parent / "rauda_core" / "writers"
         if writers_dir.exists():
             for py_file in sorted(writers_dir.glob("*.py")):
                 if py_file.name.startswith("_"):
                     continue
-                lint_issues = self.structural_linter.lint_file(
-                    py_file,
-                    base_class_name="ResultWriter",
-                    required_methods={"write"},
-                )
-                writer_passed = not any(i.severity == "error" for i in lint_issues)
+
+                lint_result = writer_linter.validate(py_file)
+                golden_result = self._check_writer_golden(py_file, py_file.stem.removesuffix("_writer"), golden_dir)
+
+                writer_passed = lint_result["passed"] and golden_result["passed"]
                 result["writers"][py_file.stem] = {
+                    **lint_result,
+                    "golden": golden_result,
                     "passed": writer_passed,
-                    "file": str(py_file),
-                    "issues": [
-                        {"rule": i.rule, "line": i.line, "message": i.message, "severity": i.severity}
-                        for i in lint_issues
-                    ],
                 }
                 if not writer_passed:
                     result["passed"] = False
 
         # Cross-client consistency
         consistency_issues = self.consistency_checker.check_all(clients_dir)
-        consistency_items = []
-        for issue in consistency_issues:
-            consistency_items.append({
-                "client": issue.client,
-                "category": issue.category,
-                "message": issue.message,
-                "severity": issue.severity,
-            })
-
         result["consistency"] = {
             "passed": not any(i.severity == "error" for i in consistency_issues),
-            "issues": consistency_items,
+            "issues": [
+                {"client": i.client, "category": i.category, "message": i.message, "severity": i.severity}
+                for i in consistency_issues
+            ],
         }
 
         # Summary
@@ -204,52 +186,6 @@ class Harness:
     def eval_spec(self, spec_path: str, target_path: str) -> dict[str, Any]:
         """Verify implementation against challenge spec. Agent calls this to check its own work."""
         return self.spec_evaluator.evaluate_from_paths(Path(spec_path), Path(target_path))
-
-    # ------------------------------------------------------------------
-    # Helpers — actionable hints for the AI agent
-    # ------------------------------------------------------------------
-
-    def _config_fix_hint(self, field_path: str, message: str) -> str:
-        """Return a specific, actionable fix hint the agent can follow."""
-        hints = {
-            "client_name": "Add 'client_name: \"Your Client Name\"' to config.yaml",
-            "client_slug": "Add 'client_slug: \"your_client\"' (lowercase, alphanumeric with _ or -)",
-            "platform": "Add 'platform: \"zendesk\"' or 'platform: \"intercom\"'",
-            "webhook": "Add a 'webhook:' section with subscribed_events, auth_method, auth_secret_env_var",
-            "field_mapping": "Add a 'field_mapping:' section. See rauda_core/schemas.py FieldMapping for defaults.",
-        }
-        for key, hint in hints.items():
-            if key in field_path:
-                return hint
-        return f"Fix the field at '{field_path}'. Refer to rauda_core/schemas.py for the expected shape."
-
-    def _lint_fix_hint(self, rule: str) -> str:
-        hints = {
-            "STRUCT-001": (
-                "Your integration.py must define a class that inherits from BaseIntegration. "
-                "Example: 'class MyClientIntegration(BaseIntegration):'"
-            ),
-            "STRUCT-002": "Remove the extra BaseIntegration subclass. Only one per file.",
-            "STRUCT-003": (
-                "Implement the missing method. Required methods: "
-                "validate_webhook, parse_webhook, enrich_context, execute_action. "
-                "See rauda_core/interfaces/integration.py for signatures."
-            ),
-            "STRUCT-004": (
-                "Remove your handle_webhook override. The standard pipeline in "
-                "BaseIntegration.handle_webhook calls your methods in order. "
-                "Do not override it."
-            ),
-            "STRUCT-005": (
-                "Remove _get_ai_decision override. AI decision logic is in Rauda Core, "
-                "not in client integrations."
-            ),
-            "PURE-001": (
-                "parse_webhook must be a pure data transformation — no HTTP calls. "
-                "Move any HTTP/API calls to enrich_context or execute_action."
-            ),
-        }
-        return hints.get(rule, f"See harness/validators/structural_linter.py for rule {rule}")
 
     def _try_load(self, client_dir: Path, config_path: Path, integration_path: Path) -> dict:
         """Try to actually import and instantiate the integration."""
@@ -277,6 +213,78 @@ class Harness:
                     f"Check that config.yaml values match the schema enums "
                     f"and that integration.py imports are correct."
                 ),
+            }
+
+    def _check_writer_golden(self, py_file: Path, writer_name: str, golden_dir: Path) -> dict:
+        """Run a writer against its golden dataset."""
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("_writer_mod", py_file)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+
+            # Find the ResultWriter subclass
+            from rauda_core.interfaces.writer import ResultWriter
+            writer_cls = None
+            for attr in dir(mod):
+                obj = getattr(mod, attr)
+                if isinstance(obj, type) and issubclass(obj, ResultWriter) and obj is not ResultWriter:
+                    writer_cls = obj
+                    break
+
+            if writer_cls is None:
+                return {"passed": True, "message": "No ResultWriter subclass found — skipping golden."}
+
+            result = validate_writer(writer_cls, writer_name, golden_dir)
+            return {
+                "passed": result.passed,
+                "differences": result.differences,
+            }
+        except Exception as e:
+            return {
+                "passed": False,
+                "error": f"{type(e).__name__}: {e}",
+            }
+
+    def _check_integration_golden(
+        self, config_path: Path, integration_path: Path, golden_dir: Path,
+    ) -> dict:
+        """Run an integration against its golden dataset.
+
+        Golden checks only run when a matching expected_output.json exists:
+        - Custom integration in clients/<slug>/integration.py → golden/integrations/<slug>/
+        - Config-only client using DefaultIntegration → golden/integrations/default/
+        """
+        try:
+            from rauda_core.integrations.registry import load_config_from_yaml, load_integration_class
+            from rauda_core.integrations.default import DefaultIntegration
+
+            config = load_config_from_yaml(config_path)
+            client_slug = config_path.parent.name
+            if integration_path.exists():
+                cls = load_integration_class(integration_path)
+            else:
+                cls = DefaultIntegration
+
+            # Golden checks are per-client: only run when golden/integrations/<slug>/ exists
+            expected_path = golden_dir / "integrations" / client_slug / "expected_output.json"
+            if not expected_path.exists():
+                return {
+                    "passed": True,
+                    "message": f"No golden dataset at {expected_path.relative_to(golden_dir)} — skipping.",
+                }
+
+            # Derive the golden folder name from the expected_path
+            integration_name = expected_path.parent.name
+            result = validate_integration(cls, config, golden_dir, integration_name)
+            return {
+                "passed": result.passed,
+                "differences": result.differences,
+            }
+        except Exception as e:
+            return {
+                "passed": False,
+                "error": f"{type(e).__name__}: {e}",
             }
 
     def _build_summary(self, result: dict) -> str:

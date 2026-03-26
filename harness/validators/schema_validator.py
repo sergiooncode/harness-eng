@@ -29,6 +29,18 @@ class ValidationError:
 class ConfigValidator:
     """Validates a config.yaml against the ClientConfig schema."""
 
+    def validate(self, path: Path) -> dict:
+        """Common interface: validate a file and return structured result."""
+        errors = self.validate_file(path)
+        return {
+            "passed": not any(e.severity == "error" for e in errors),
+            "file": str(path),
+            "issues": [
+                {"field": e.path, "message": e.message, "severity": e.severity}
+                for e in errors
+            ],
+        }
+
     REQUIRED_TOP_LEVEL = {"client_name", "client_slug", "platform", "webhook", "field_mapping"}
     VALID_PLATFORMS = {p.value for p in SupportPlatform}
     VALID_EVENT_TYPES = {e.value for e in WebhookEventType}
@@ -175,6 +187,126 @@ class ConfigValidator:
                 errors.append(ValidationError(
                     "eval.quality_threshold", "Must be a number between 0.0 and 1.0"
                 ))
+        return errors
+
+
+class WorkflowValidator:
+    """Validates a workflow.yaml against structural rules."""
+
+    VALID_STEP_TYPES = {"llm", "code"}
+
+    def validate(self, path: Path) -> dict:
+        """Common interface: validate a file and return structured result."""
+        errors = self.validate_file(path)
+        return {
+            "passed": not any(e.severity == "error" for e in errors),
+            "file": str(path),
+            "issues": [
+                {"field": e.path, "message": e.message, "severity": e.severity}
+                for e in errors
+            ],
+        }
+
+    def validate_file(self, workflow_path: Path) -> list[ValidationError]:
+        """Validate a workflow.yaml file. Returns list of errors (empty = valid)."""
+        errors: list[ValidationError] = []
+
+        if not workflow_path.exists():
+            errors.append(ValidationError("workflow.yaml", "File not found"))
+            return errors
+
+        try:
+            with open(workflow_path) as f:
+                raw = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            errors.append(ValidationError("workflow.yaml", f"Invalid YAML: {e}"))
+            return errors
+
+        if not isinstance(raw, dict):
+            errors.append(ValidationError("workflow.yaml", "Root must be a mapping"))
+            return errors
+
+        if "name" not in raw:
+            errors.append(ValidationError("name", "Required field missing"))
+
+        steps = raw.get("steps", [])
+        if not isinstance(steps, list):
+            errors.append(ValidationError("steps", "Must be a list"))
+            return errors
+
+        if not steps:
+            errors.append(ValidationError("steps", "Workflow must have at least one step"))
+            return errors
+
+        errors.extend(self._validate_steps(steps))
+        return errors
+
+    def _validate_steps(self, steps: list) -> list[ValidationError]:
+        errors: list[ValidationError] = []
+        output_keys_seen: set[str] = set()
+        available_keys: set[str] = set()
+
+        for i, step in enumerate(steps):
+            prefix = f"steps[{i}]"
+            if not isinstance(step, dict):
+                errors.append(ValidationError(prefix, "Must be a mapping"))
+                continue
+
+            # Required fields
+            for req in ("name", "type", "output_key"):
+                if req not in step:
+                    errors.append(ValidationError(f"{prefix}.{req}", "Required"))
+
+            # Valid step type
+            step_type = step.get("type")
+            if step_type and step_type not in self.VALID_STEP_TYPES:
+                errors.append(ValidationError(
+                    f"{prefix}.type",
+                    f"Must be one of {sorted(self.VALID_STEP_TYPES)}, got '{step_type}'"
+                ))
+
+            # Unique output keys
+            output_key = step.get("output_key")
+            if output_key:
+                if output_key in output_keys_seen:
+                    errors.append(ValidationError(
+                        f"{prefix}.output_key",
+                        f"Duplicate output_key '{output_key}' — must be unique across steps"
+                    ))
+                output_keys_seen.add(output_key)
+
+            # LLM steps must have a model
+            if step_type == "llm":
+                if not step.get("model"):
+                    errors.append(ValidationError(
+                        f"{prefix}.model", "LLM steps must specify a model"
+                    ))
+                if not step.get("prompt_template"):
+                    errors.append(ValidationError(
+                        f"{prefix}.prompt_template", "LLM steps must specify a prompt_template"
+                    ))
+
+            # Code steps must have a function
+            if step_type == "code":
+                if not step.get("function"):
+                    errors.append(ValidationError(
+                        f"{prefix}.function", "Code steps must specify a function"
+                    ))
+                # Check input_keys are satisfied by prior steps' output_keys.
+                # Keys may also come from initial context (runtime), so warn rather than error.
+                for key in step.get("input_keys", []):
+                    if key not in available_keys:
+                        errors.append(ValidationError(
+                            f"{prefix}.input_keys",
+                            f"Input key '{key}' not produced by any prior step. "
+                            f"Available: {sorted(available_keys) if available_keys else 'none'}. "
+                            f"OK if provided in initial context.",
+                            severity="warning",
+                        ))
+
+            if output_key:
+                available_keys.add(output_key)
+
         return errors
 
 

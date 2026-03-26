@@ -80,8 +80,8 @@ class TestAirtableWriter:
 
         records = mock_table.batch_create.call_args[0][0]
         assert len(records) == 1
-        assert records[0]["fields"]["Ticket"] == "Help me"
-        assert records[0]["fields"]["Content Score"] == 4
+        assert records[0]["Ticket"] == "Help me"
+        assert records[0]["Content Score"] == 4
 
     @patch("rauda_core.writers.airtable_writer.Api")
     def test_write_includes_null_for_failed_eval(self, mock_api_cls: MagicMock):
@@ -96,5 +96,5 @@ class TestAirtableWriter:
         writer.write(_sample_rows(), [None])
 
         records = mock_table.batch_create.call_args[0][0]
-        assert records[0]["fields"]["Content Score"] is None
-        assert records[0]["fields"]["Format Score"] is None
+        assert records[0]["Content Score"] is None
+        assert records[0]["Format Score"] is None

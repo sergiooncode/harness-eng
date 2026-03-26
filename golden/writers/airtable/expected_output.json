@@ -1,22 +1,18 @@
 [
   {
-    "fields": {
-      "Ticket": "I ordered a laptop 3 weeks ago and it still hasn't arrived.",
-      "Reply": "I've looked into your order and it was shipped on March 10th. You should receive an update within 24 hours.",
-      "Content Score": 4,
-      "Content Explanation": "Addresses the issue with shipping details but doesn't offer a resolution if it remains delayed.",
-      "Format Score": 5,
-      "Format Explanation": "Clear, concise, well-structured response."
-    }
+    "Ticket": "I ordered a laptop 3 weeks ago and it still hasn't arrived.",
+    "Reply": "I've looked into your order and it was shipped on March 10th. You should receive an update within 24 hours.",
+    "Content Score": 4,
+    "Content Explanation": "Addresses the issue with shipping details but doesn't offer a resolution if it remains delayed.",
+    "Format Score": 5,
+    "Format Explanation": "Clear, concise, well-structured response."
   },
   {
-    "fields": {
-      "Ticket": "How do I reset my password?",
-      "Reply": "",
-      "Content Score": null,
-      "Content Explanation": null,
-      "Format Score": null,
-      "Format Explanation": null
-    }
+    "Ticket": "How do I reset my password?",
+    "Reply": "",
+    "Content Score": null,
+    "Content Explanation": null,
+    "Format Score": null,
+    "Format Explanation": null
   }
 ]

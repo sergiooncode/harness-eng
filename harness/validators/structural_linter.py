@@ -46,6 +46,30 @@ FORBIDDEN_IN_PARSE_WEBHOOK = {
 class StructuralLinter:
     """AST-based linter for Python files implementing an abstract base class."""
 
+    def __init__(
+        self,
+        base_class_name: str = "BaseIntegration",
+        required_methods: set[str] | None = None,
+    ) -> None:
+        self.base_class_name = base_class_name
+        self.required_methods = required_methods
+
+    def validate(self, path: Path) -> dict:
+        """Common interface: validate a file and return structured result."""
+        issues = self.lint_file(
+            path,
+            base_class_name=self.base_class_name,
+            required_methods=self.required_methods,
+        )
+        return {
+            "passed": not any(i.severity == "error" for i in issues),
+            "file": str(path),
+            "issues": [
+                {"rule": i.rule, "line": i.line, "message": i.message, "severity": i.severity}
+                for i in issues
+            ],
+        }
+
     def lint_file(
         self,
         file_path: Path,
