@@ -3,6 +3,7 @@
 import asyncio
 import logging
 
+from langfuse import observe
 from openai import AsyncOpenAI, APIStatusError, APITimeoutError, RateLimitError
 
 from rauda_core.schemas import Evaluation, SYSTEM_PROMPT
@@ -12,6 +13,17 @@ logger = logging.getLogger(__name__)
 MAX_RETRIES = 3
 BASE_DELAY = 1.0
 RETRYABLE_ERRORS = (RateLimitError, APITimeoutError)
+
+
+@observe()
+async def llm_evaluation(client: AsyncOpenAI, user_prompt: str) -> Evaluation:
+    response = await client.responses.parse(
+        model="gpt-4o",
+        instructions=SYSTEM_PROMPT,
+        input=user_prompt,
+        text_format=Evaluation,
+    )
+    return response.output_parsed
 
 
 async def evaluate_reply(
@@ -42,13 +54,7 @@ async def evaluate_reply(
     async with semaphore:
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                response = await client.responses.parse(
-                    model="gpt-4o",
-                    instructions=SYSTEM_PROMPT,
-                    input=user_prompt,
-                    text_format=Evaluation,
-                )
-                return response.output_parsed
+                return await llm_evaluation(client, user_prompt)
             except RETRYABLE_ERRORS as e:
                 if attempt == MAX_RETRIES:
                     logger.error("Failed after %d retries: %s", MAX_RETRIES, e)
