@@ -26,6 +26,8 @@ class CsvWriter(ResultWriter):
             "content_explanation",
             "format_score",
             "format_explanation",
+            "empathy_score",
+            "empathy_explanation",
         ]
         with open(self.output_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -40,5 +42,7 @@ class CsvWriter(ResultWriter):
                         content_explanation="",
                         format_score="",
                         format_explanation="",
+                        empathy_score="",
+                        empathy_explanation="",
                     )
                 writer.writerow(out)

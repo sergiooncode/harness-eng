@@ -89,7 +89,7 @@ def main() -> None:
     else:
         config = ClientConfig(
             client_name="default",
-            writer_type="airtable",
+            writer_type="csv",
             airtable_api_token=os.environ.get("AIRTABLE_API_TOKEN", ""),
             airtable_base_id=os.environ.get("AIRTABLE_BASE_ID", ""),
             airtable_table_name=os.environ.get("AIRTABLE_TABLE_NAME", ""),

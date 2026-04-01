@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 SYSTEM_PROMPT = """\
 You are an expert evaluator of customer support replies.
 
-Given a customer support ticket and an AI-generated reply, evaluate the reply on two dimensions:
+Given a customer support ticket and an AI-generated reply, evaluate the reply on three dimensions:
 
 1. **Content** (relevance, correctness, completeness):
    - Does the reply address the customer's issue?
@@ -29,6 +29,11 @@ Given a customer support ticket and an AI-generated reply, evaluate the reply on
    - Is the reply clearly written and easy to understand?
    - Is it well-structured and appropriately concise?
    - Is it free of grammar and spelling errors?
+
+3. **Empathy** (validation, clarity, ownership):
+   - Does the reply acknowledge the customer’s feelings or situation in a believable way?
+   - Does the reply clearly explain the next step or answer without sounding cold or defensive?
+   - Does the reply take responsibility for helping, rather than shifting burden to the customer?
 
 Score each dimension from 1 to 5.
 
@@ -43,6 +48,8 @@ class Evaluation(BaseModel):
     content_explanation: str = Field(description="Brief explanation of the content score")
     format_score: int = Field(ge=1, le=5, description="Format score from 1 to 5")
     format_explanation: str = Field(description="Brief explanation of the format score")
+    empathy_score: int = Field(ge=1, le=5, description="Empathy score from 1 to 5")
+    empathy_explanation: str = Field(description="Brief explanation of the empathy score")
 
 
 # ---------------------------------------------------------------------------
